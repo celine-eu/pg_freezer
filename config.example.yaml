@@ -1,0 +1,68 @@
+# pg_freezer example configuration
+# Copy to config.yaml and adjust for your environment.
+# Run: pg-freezer run --config config.yaml
+
+database:
+  # PostgreSQL connection string.
+  # Environment variables are expanded: use ${VAR} or $VAR syntax.
+  dsn: "${PG_DSN}"
+  # dsn: "postgresql://user:password@localhost:5432/mydb"
+  pool_size: 5
+  # Maximum time a single DB statement may run before being cancelled.
+  statement_timeout: 30s
+
+storage:
+  protocol: s3
+
+  # Omit endpoint_url to use AWS S3 with default credential chain (IRSA, env vars, etc.)
+  # Set for MinIO or any S3-compatible backend:
+  endpoint_url: http://localhost:9000
+
+  bucket: pg-freezer
+
+  # Credentials — leave empty to use AWS credential chain / instance profile / IRSA
+  access_key: "${S3_ACCESS_KEY}"
+  secret_key: "${S3_SECRET_KEY}"
+
+  # Required for MinIO (path-style addressing). Set to false for AWS S3.
+  path_style: true
+
+tables:
+  # Example: daily sensor readings older than 15 days
+  - name: sensor_readings
+    schema: public
+    timestamp_column: recorded_at
+    partition_by: daily    # hourly | daily | monthly
+    lag: 15d               # export records older than 15 days
+    # extra_filters: "sensor_type = 'temperature'"  # optional SQL fragment
+
+  # Example: hourly aggregates, keep last 30 days hot
+  - name: hourly_aggregates
+    schema: analytics
+    timestamp_column: window_start
+    partition_by: hourly
+    lag: 30d
+
+  # Example: monthly billing snapshots
+  - name: billing_snapshots
+    schema: billing
+    timestamp_column: snapshot_at
+    partition_by: monthly
+    lag: 90d
+
+global:
+  # Maximum number of tables processed concurrently.
+  # Within a single table, batches are always sequential.
+  max_table_concurrency: 3
+
+  # Set to true globally to preview what would happen without deleting anything.
+  dry_run: false
+
+  # Interval for --daemon mode (not used when invoked by external cron).
+  check_interval: 1h
+
+  notify:
+    # Optional: POST a JSON payload to this URL on batch failures.
+    # Leave null to disable webhook notifications (structured logs are always emitted).
+    webhook_url: null
+    # webhook_url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"

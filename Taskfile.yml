@@ -1,0 +1,187 @@
+version: '3'
+
+vars:
+  CONFIG: scripts/config.dev.yaml
+  PG_DSN: '{{.PG_DSN | default "postgresql://postgres:postgres@localhost:5432/testdb"}}'
+
+tasks:
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+
+  infra:up:
+    desc: Start Postgres and MinIO via docker compose
+    cmds:
+      - docker compose up -d
+      - docker compose ps
+
+  infra:down:
+    desc: Stop and remove docker compose services
+    cmds:
+      - docker compose down
+
+  infra:reset:
+    desc: Destroy and recreate infrastructure (drops all data)
+    prompt: This will destroy all local data. Continue?
+    cmds:
+      - docker compose down -v
+      - docker compose up -d
+
+  # ---------------------------------------------------------------------------
+  # Dev data generation
+  # ---------------------------------------------------------------------------
+
+  dev:generate:
+    desc: >
+      Backfill ~1M records per table (7 days × 1-min resolution × 100 rows/ts)
+      then keep inserting live every second.
+    cmds:
+      - >
+        PG_DSN={{.PG_DSN}} uv run python scripts/generate.py
+        --backfill-days 7
+        --backfill-resolution 1
+        --batch-size 100
+        --interval 1.0
+
+  dev:generate:quick:
+    desc: Backfill ~10k records (30 min resolution) then live inserts — fast smoke test
+    cmds:
+      - >
+        PG_DSN={{.PG_DSN}} uv run python scripts/generate.py
+        --backfill-days 3
+        --backfill-resolution 30
+        --batch-size 10
+        --interval 1.0
+
+  dev:generate:setup-only:
+    desc: Backfill ~1M records and exit (no live loop) — useful for CI seeding
+    cmds:
+      - >
+        PG_DSN={{.PG_DSN}} uv run python scripts/generate.py
+        --backfill-days 7
+        --backfill-resolution 1
+        --batch-size 100
+        --setup-only
+
+  # ---------------------------------------------------------------------------
+  # pg_freezer operations
+  # ---------------------------------------------------------------------------
+
+  dev:export:
+    desc: Run pg_freezer — export verified data from Postgres to S3 then delete
+    cmds:
+      - uv run pg-freezer run --config {{.CONFIG}}
+
+  dev:export:dry-run:
+    desc: Preview what pg_freezer would export without deleting anything
+    cmds:
+      - uv run pg-freezer run --config {{.CONFIG}} --dry-run
+
+  dev:export:table:
+    desc: Export a single table (TABLE=sensor_readings task dev:export:table)
+    requires:
+      vars: [TABLE]
+    cmds:
+      - uv run pg-freezer run --config {{.CONFIG}} --table {{.TABLE}}
+
+  dev:status:
+    desc: Show manifest status for all configured tables
+    cmds:
+      - uv run pg-freezer status --config {{.CONFIG}}
+
+  dev:replay:
+    desc: >
+      Replay a specific window (FROM and TO required).
+      Example: task dev:replay FROM=2024-01-01 TO=2024-01-08 TABLE=sensor_readings
+    requires:
+      vars: [FROM, TO, TABLE]
+    cmds:
+      - >
+        uv run pg-freezer replay
+        --config {{.CONFIG}}
+        --table {{.TABLE}}
+        --from {{.FROM}}
+        --to {{.TO}}
+
+  # ---------------------------------------------------------------------------
+  # List / Fetch (retrieve archived data from S3)
+  # ---------------------------------------------------------------------------
+
+  dev:list:
+    desc: >
+      List Parquet files stored in S3 with partition, row count, size and status.
+      Optional: TABLE, FROM, TO, STATUS filters.
+        task dev:list
+        task dev:list TABLE=sensor_readings FROM=2024-01-01 TO=2024-02-01
+        task dev:list STATUS=FAILED
+    vars:
+      TABLE_FLAG:  '{{if .TABLE}}--table {{.TABLE}}{{end}}'
+      FROM_FLAG:   '{{if .FROM}}--from {{.FROM}}{{end}}'
+      TO_FLAG:     '{{if .TO}}--to {{.TO}}{{end}}'
+      STATUS_FLAG: '{{if .STATUS}}--status {{.STATUS}}{{end}}'
+    cmds:
+      - >
+        uv run pg-freezer list
+        --config {{.CONFIG}}
+        {{.TABLE_FLAG}} {{.FROM_FLAG}} {{.TO_FLAG}} {{.STATUS_FLAG}}
+
+  dev:fetch:
+    desc: >
+      Fetch archived data from S3 to stdout as CSV.
+      Requires TABLE, FROM, TO. Example:
+        task dev:fetch TABLE=sensor_readings FROM=2024-01-01 TO=2024-01-08
+    requires:
+      vars: [TABLE, FROM, TO]
+    vars:
+      FMT: '{{.FMT | default "csv"}}'
+    cmds:
+      - >
+        uv run pg-freezer fetch
+        --config {{.CONFIG}}
+        --table {{.TABLE}}
+        --from {{.FROM}}
+        --to {{.TO}}
+        --format {{.FMT}}
+
+  dev:fetch:file:
+    desc: >
+      Fetch archived data from S3 to a local file.
+      Requires TABLE, FROM, TO, OUTPUT. Optional FMT (csv/json/jsonl).
+        task dev:fetch:file TABLE=sensor_readings FROM=2024-01-01 TO=2024-01-08 OUTPUT=out.csv
+    requires:
+      vars: [TABLE, FROM, TO, OUTPUT]
+    vars:
+      FMT: '{{.FMT | default "csv"}}'
+    cmds:
+      - >
+        uv run pg-freezer fetch
+        --config {{.CONFIG}}
+        --table {{.TABLE}}
+        --from {{.FROM}}
+        --to {{.TO}}
+        --format {{.FMT}}
+        --output {{.OUTPUT}}
+
+  # ---------------------------------------------------------------------------
+  # Testing
+  # ---------------------------------------------------------------------------
+
+  test:
+    desc: Run unit tests
+    cmds:
+      - uv run pytest tests/ -v
+
+  test:cov:
+    desc: Run unit tests with coverage report
+    cmds:
+      - uv run pytest tests/ --cov=pg_freezer --cov-report=term-missing
+
+  # ---------------------------------------------------------------------------
+  # Shortcuts
+  # ---------------------------------------------------------------------------
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list

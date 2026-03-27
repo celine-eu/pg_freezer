@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "pg-freezer.fullname" . }}
+  labels:
+    {{- include "pg-freezer.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  {{- if .Values.timeZone }}
+  timeZone: {{ .Values.timeZone | quote }}
+  {{- end }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "pg-freezer.selectorLabels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "pg-freezer.serviceAccountName" . }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: pg-freezer
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              args:
+                - run
+                - --config
+                - /etc/pg-freezer/config.yaml
+                {{- if .Values.args.table }}
+                - --table
+                - {{ .Values.args.table | quote }}
+                {{- end }}
+                {{- if .Values.args.dryRun }}
+                - --dry-run
+                {{- end }}
+                {{- if .Values.args.force }}
+                - --force
+                {{- end }}
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/pg-freezer
+                  readOnly: true
+              env:
+                - name: LOG_FORMAT
+                  value: "json"
+                {{- if .Values.secrets.pgDsn }}
+                - name: PG_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "pg-freezer.fullname" . }}-secrets
+                      key: PG_DSN
+                {{- end }}
+                {{- if .Values.secrets.s3AccessKey }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "pg-freezer.fullname" . }}-secrets
+                      key: S3_ACCESS_KEY
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "pg-freezer.fullname" . }}-secrets
+                      key: S3_SECRET_KEY
+                {{- end }}
+                {{- with .Values.extraEnv }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+          volumes:
+            - name: config
+              configMap:
+                name: {{ include "pg-freezer.fullname" . }}-config
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

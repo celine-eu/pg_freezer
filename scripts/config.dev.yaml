@@ -1,0 +1,41 @@
+# pg_freezer dev/testing config
+# Pairs with scripts/generate.py
+#
+# Quick start:
+#   1. docker compose up -d
+#   2. python scripts/generate.py         # backfills 3 days + keeps inserting
+#   3. pg-freezer run --config scripts/config.dev.yaml --dry-run
+#   4. pg-freezer run --config scripts/config.dev.yaml
+#   5. pg-freezer status --config scripts/config.dev.yaml
+
+database:
+  dsn: "${PG_DSN:=postgresql://postgres:postgres@localhost:5432/testdb}"
+  pool_size: 3
+  statement_timeout: 60s
+
+storage:
+  protocol: s3
+  endpoint_url: "${S3_ENDPOINT:=http://localhost:9000}"
+  bucket: pg-freezer
+  access_key: "${S3_ACCESS_KEY:=minioadmin}"
+  secret_key: "${S3_SECRET_KEY:=minioadmin}"
+  path_style: true
+
+tables:
+  - name: sensor_readings
+    schema: public
+    timestamp_column: recorded_at
+    partition_by: hourly
+    lag: 2h          # export records older than 2 hours — backfill data is immediately eligible
+
+  - name: device_events
+    schema: public
+    timestamp_column: occurred_at
+    partition_by: daily
+    lag: 6h          # export in daily batches, keep last 6h hot
+
+global:
+  max_table_concurrency: 2
+  dry_run: false
+  notify:
+    webhook_url: null

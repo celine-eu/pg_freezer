@@ -1,0 +1,79 @@
+image:
+  repository: pg-freezer
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+# CronJob schedule (standard cron syntax)
+schedule: "0 * * * *"   # hourly by default
+
+# CronJob concurrency policy — Forbid prevents overlapping runs
+concurrencyPolicy: Forbid
+
+# Timezone for the CronJob schedule
+timeZone: "UTC"
+
+# Resource limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+# pg-freezer CLI flags
+args:
+  table: ""        # leave empty to process all tables
+  dryRun: false
+  force: false
+
+# ServiceAccount settings
+serviceAccount:
+  create: true
+  name: ""
+  # Uncomment for AWS IRSA (IAM Roles for Service Accounts)
+  # annotations:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/pg-freezer
+
+# Config file contents (mounted as ConfigMap)
+# Provide the full config.yaml content here
+config: |
+  database:
+    dsn: "postgresql://user:pass@host:5432/db"
+    pool_size: 5
+    statement_timeout: 30s
+  storage:
+    protocol: s3
+    endpoint_url: null
+    bucket: pg-freezer
+    path_style: false
+  tables:
+    - name: sensor_readings
+      schema: public
+      timestamp_column: recorded_at
+      partition_by: daily
+      lag: 15d
+  global:
+    max_table_concurrency: 3
+    dry_run: false
+
+# Secret values — override via --set-string or external secret management
+secrets:
+  # PostgreSQL DSN (overrides database.dsn in config if set)
+  pgDsn: ""
+  # S3 credentials (optional — use IRSA/instance profiles instead when possible)
+  s3AccessKey: ""
+  s3SecretKey: ""
+
+# Extra environment variables
+extraEnv: []
+# - name: LOG_FORMAT
+#   value: json
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Node selector, tolerations, affinity
+nodeSelector: {}
+tolerations: []
+affinity: {}
