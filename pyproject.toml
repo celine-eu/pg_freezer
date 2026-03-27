@@ -7,7 +7,7 @@ packages = ["src/pg_freezer"]
 
 [project]
 name = "pg-freezer"
-version = "0.1.0"
+version = "1.0.0"
 description = "Archive PostgreSQL timeseries tables to Parquet on S3-compatible storage"
 requires-python = ">=3.11"
 dependencies = [
@@ -44,6 +44,7 @@ dev-dependencies = [
     "pytest-asyncio>=0.23",
     "duckdb>=0.10",
     "pytest-cov>=5.0",
+    "python-semantic-release>=10.5.3",
 ]
 
 

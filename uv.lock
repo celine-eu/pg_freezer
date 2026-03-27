@@ -984,7 +984,7 @@ wheels = [
 
 [[package]]
 name = "pg-freezer"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -1013,6 +1013,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "python-semantic-release" },
 ]
 
 [package.metadata]
@@ -1040,6 +1041,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "python-semantic-release", specifier = ">=10.5.3" },
 ]
 
 [[package]]
