@@ -112,6 +112,8 @@ class DBExporter:
         column_names: list[str] = []
         column_oids: list[int] = []
 
+        _LOG_INTERVAL = 50_000
+
         try:
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -127,6 +129,8 @@ class DBExporter:
                             # we introspect via the cursor's attributes after first record
                             first = False
                         rows.append(record)
+                        if len(rows) % _LOG_INTERVAL == 0 and logger:
+                            logger.info("export_progress", rows_fetched=len(rows))
 
                     # Introspect column types via pg_attribute
                     if column_names:

@@ -136,3 +136,34 @@ class TestGenerateWindows:
         windows = generate_windows(dt(2024, 1, 1), dt(2024, 1, 10), "daily")
         starts = [w[0] for w in windows]
         assert starts == sorted(starts)
+
+    # --- partial-partition boundary tests (regression for the window_end > range_end fix) ---
+
+    def test_monthly_cutoff_mid_month_excludes_incomplete(self):
+        # range_end falls mid-February — February must NOT be returned
+        windows = generate_windows(dt(2024, 1, 1), dt(2024, 2, 15), "monthly")
+        assert len(windows) == 1
+        assert windows[0] == (dt(2024, 1, 1), dt(2024, 2, 1))
+
+    def test_monthly_cutoff_exactly_on_boundary_includes(self):
+        # range_end exactly on March 1 — February IS a complete window
+        windows = generate_windows(dt(2024, 1, 1), dt(2024, 3, 1), "monthly")
+        assert len(windows) == 2
+        assert windows[-1] == (dt(2024, 2, 1), dt(2024, 3, 1))
+
+    def test_daily_cutoff_mid_day_excludes_partial(self):
+        # range_end at noon — the day that started that day must NOT be returned
+        windows = generate_windows(dt(2024, 1, 1), dt(2024, 1, 3, 12), "daily")
+        assert len(windows) == 2
+        assert windows[-1] == (dt(2024, 1, 2), dt(2024, 1, 3))
+
+    def test_daily_cutoff_exactly_on_midnight_includes(self):
+        # range_end exactly at midnight of Jan 4 — Jan 3 IS a complete window
+        windows = generate_windows(dt(2024, 1, 1), dt(2024, 1, 4), "daily")
+        assert len(windows) == 3
+        assert windows[-1] == (dt(2024, 1, 3), dt(2024, 1, 4))
+
+    def test_hourly_cutoff_mid_hour_excludes_partial(self):
+        windows = generate_windows(dt(2024, 1, 1, 10), dt(2024, 1, 1, 12, 30), "hourly")
+        assert len(windows) == 2
+        assert windows[-1] == (dt(2024, 1, 1, 11), dt(2024, 1, 1, 12))

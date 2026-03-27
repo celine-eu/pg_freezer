@@ -177,6 +177,44 @@ tasks:
       - uv run pytest tests/ --cov=pg_freezer --cov-report=term-missing
 
   # ---------------------------------------------------------------------------
+  # Local / prod port-forward
+  # ---------------------------------------------------------------------------
+
+  local:export:
+    desc: Run against prod via port-forward (requires PG_PASSWORD, S3_ACCESS_KEY, S3_SECRET_KEY)
+    cmds:
+      - uv run pg-freezer run --config config.local.yaml {{if .TABLE}}--table {{.TABLE}}{{end}}
+
+  local:export:dry-run:
+    desc: Preview what would be exported from prod (no deletes)
+    cmds:
+      - uv run pg-freezer run --config config.local.yaml --dry-run {{if .TABLE}}--table {{.TABLE}}{{end}}
+
+  local:status:
+    desc: Show manifest status for prod bucket
+    cmds:
+      - uv run pg-freezer status --config config.local.yaml
+
+  local:list:
+    desc: List partitions in prod bucket
+    vars:
+      TABLE_FLAG:  '{{if .TABLE}}--table {{.TABLE}}{{end}}'
+      FROM_FLAG:   '{{if .FROM}}--from {{.FROM}}{{end}}'
+      TO_FLAG:     '{{if .TO}}--to {{.TO}}{{end}}'
+      STATUS_FLAG: '{{if .STATUS}}--status {{.STATUS}}{{end}}'
+    cmds:
+      - uv run pg-freezer list --config config.local.yaml {{.TABLE_FLAG}} {{.FROM_FLAG}} {{.TO_FLAG}} {{.STATUS_FLAG}}
+
+  local:fetch:
+    desc: Fetch archived data from prod bucket to stdout
+    requires:
+      vars: [TABLE, FROM, TO]
+    vars:
+      FMT: '{{.FMT | default "csv"}}'
+    cmds:
+      - uv run pg-freezer fetch --config config.local.yaml --table {{.TABLE}} --from {{.FROM}} --to {{.TO}} --format {{.FMT}}
+
+  # ---------------------------------------------------------------------------
   # Shortcuts
   # ---------------------------------------------------------------------------
 

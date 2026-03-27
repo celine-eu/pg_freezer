@@ -81,8 +81,10 @@ def generate_windows(
     windows: list[tuple[datetime, datetime]] = []
     current = floor_to_partition(range_start, granularity)
 
-    while current < range_end:
+    while True:
         window_end = next_partition(current, granularity)
+        if window_end > range_end:
+            break
         windows.append((current, window_end))
         current = window_end
 
