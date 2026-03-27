@@ -9,6 +9,7 @@ packages = ["src/pg_freezer"]
 name = "pg-freezer"
 version = "1.0.0"
 description = "Archive PostgreSQL timeseries tables to Parquet on S3-compatible storage"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.29",
