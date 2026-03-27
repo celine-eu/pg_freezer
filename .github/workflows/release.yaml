@@ -67,6 +67,22 @@ jobs:
             echo "extra_tag=latest" >> $GITHUB_OUTPUT
           fi
 
+      - name: Build Docker image
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}
+          docker build -t $IMAGE:${{ steps.vars.outputs.tag }} .
+          if [ -n "${{ steps.vars.outputs.extra_tag }}" ]; then
+            docker tag $IMAGE:${{ steps.vars.outputs.tag }} $IMAGE:${{ steps.vars.outputs.extra_tag }}
+          fi
+
+      - name: Push Docker image(s)
+        run: |
+          IMAGE=ghcr.io/${{ github.repository }}
+          docker push $IMAGE:${{ steps.vars.outputs.tag }}
+          if [ -n "${{ steps.vars.outputs.extra_tag }}" ]; then
+            docker push $IMAGE:${{ steps.vars.outputs.extra_tag }}
+          fi
+
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
