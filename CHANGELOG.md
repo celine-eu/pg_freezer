@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.4 (2026-03-27)
+
+### Bug Fixes
+
+- PENDING, EXCUTING states inconsistencies
+  ([`b0e1e15`](https://github.com/celine-eu/pg_freezer/commit/b0e1e15d32507048f553fe11b2b136f339e5d201))
+
+
 ## v1.0.3 (2026-03-27)
 
 ### Bug Fixes
