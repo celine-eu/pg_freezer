@@ -188,18 +188,23 @@ class FreezerEngine:
 
         all_windows = generate_windows(range_start, range_end, table_config.partition_by)
 
-        # Efficiently filter out DONE windows using just the manifest filename set
-        done_batch_ids = await self._manifest_store.list_batch_ids_for_table(
+        # Fast path: list all manifest filenames (no content download)
+        all_batch_ids = await self._manifest_store.list_batch_ids_for_table(
             table_config.name
         )
 
-        # For non-done states, we need the actual manifest to decide resume behavior
-        # Filter: include windows not in done set
+        # Only skip DONE windows. For any other existing status (PENDING, EXPORTING,
+        # FAILED, etc.) download the manifest and include the window so _process_batch
+        # can resume or report it. Windows with no manifest at all are always included.
         pending_windows = []
         for ws, we in all_windows:
             batch_id = compute_batch_id(table_config.name, table_config.schema_name, ws, we)
-            if batch_id not in done_batch_ids:
-                pending_windows.append((ws, we))
+            if batch_id not in all_batch_ids:
+                pending_windows.append((ws, we))  # new window, no manifest
+            else:
+                manifest = await self._manifest_store.load(table_config.name, batch_id)
+                if manifest is None or manifest.status != "DONE":
+                    pending_windows.append((ws, we))  # needs processing or resume
 
         return pending_windows
 
@@ -251,7 +256,7 @@ class FreezerEngine:
         webhook_url = str(self._config.global_config.notify.webhook_url) \
             if self._config.global_config.notify.webhook_url else None
 
-        # Load or create manifest
+        # Load or create manifest — dry run never writes to S3
         manifest = await store.load(table_config.name, batch_id)
         if manifest is None:
             manifest = BatchManifest(
@@ -264,7 +269,8 @@ class FreezerEngine:
                 status="PENDING",
                 parquet_path=parquet_key,
             )
-            await store.save(manifest)
+            if not dry_run:
+                await store.save(manifest)
 
         # Handle terminal and force states
         if manifest.status == "DONE":
@@ -312,7 +318,7 @@ class FreezerEngine:
         # --- EXPORTING ---
         if manifest.status in ("PENDING", "EXPORTING"):
             logger.info("batch_exporting")
-            if not dry_run:
+            if not dry_run and manifest.status == "PENDING":
                 manifest = await store.transition(manifest, "EXPORTING")
             try:
                 parquet_bytes, row_count = await self._exporter.export_window(
