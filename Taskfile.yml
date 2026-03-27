@@ -180,10 +180,19 @@ tasks:
   # Shortcuts
   # ---------------------------------------------------------------------------
 
-  dokcker:build:
-    desc: Build in docker
+  docker:build:
+    desc: Build Docker image
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
     cmds:
-      - docker build . -t pg_freezer
+      - docker build . -t ghcr.io/celine-eu/pg_freezer:{{.TAG}}
+
+  docker:push:
+    desc: Push Docker image to GHCR
+    vars:
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker push ghcr.io/celine-eu/pg_freezer:{{.TAG}}
 
   default:
     desc: Show available tasks

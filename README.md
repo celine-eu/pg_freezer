@@ -304,6 +304,11 @@ helm install pg-freezer ./helm/pg-freezer \
   --set "secrets.s3AccessKey=AKIA..." \
   --set "secrets.s3SecretKey=..." \
   --set "schedule=0 * * * *"
+
+# Pin to a specific version
+helm install pg-freezer ./helm/pg-freezer \
+  --set "image.tag=1.0.2" \
+  --set "secrets.pgDsn=postgresql://user:pass@postgres:5432/db"
 ```
 
 ### Minimal values override
@@ -313,8 +318,8 @@ helm install pg-freezer ./helm/pg-freezer \
 schedule: "0 2 * * *"   # daily at 02:00 UTC
 
 image:
-  repository: ghcr.io/your-org/pg-freezer
-  tag: "0.1.0"
+  repository: ghcr.io/celine-eu/pg_freezer
+  tag: "latest"
 
 secrets:
   pgDsn: "postgresql://user:pass@postgres:5432/db"
@@ -377,8 +382,8 @@ secrets:
 ### Build and push the image
 
 ```bash
-docker build -t ghcr.io/your-org/pg-freezer:0.1.0 .
-docker push ghcr.io/your-org/pg-freezer:0.1.0
+docker build -t ghcr.io/celine-eu/pg_freezer:latest .
+docker push ghcr.io/celine-eu/pg_freezer:latest
 ```
 
 ---

@@ -1,6 +1,6 @@
 image:
-  repository: pg-freezer
-  tag: "0.1.0"
+  repository: ghcr.io/celine-eu/pg_freezer
+  tag: "latest"
   pullPolicy: IfNotPresent
 
 # CronJob schedule (standard cron syntax)
