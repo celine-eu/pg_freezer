@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-03-27)
+
+### Bug Fixes
+
+- Corrected monthly to not overlap end date lag
+  ([`95ab403`](https://github.com/celine-eu/pg_freezer/commit/95ab40353468ad4a474cdf123af12f9447c3ca68))
+
+### Chores
+
+- Update image refs
+  ([`cf35d04`](https://github.com/celine-eu/pg_freezer/commit/cf35d04025ccd97fca186cce7ae311e974880875))
+
+### Continuous Integration
+
+- Bump hynek/build-and-inspect-python-package in the actions group
+  ([`70e788e`](https://github.com/celine-eu/pg_freezer/commit/70e788ee32bcf85b71cbf1169a2851cdaef11c09))
+
+
 ## v1.0.2 (2026-03-27)
 
 ### Bug Fixes
