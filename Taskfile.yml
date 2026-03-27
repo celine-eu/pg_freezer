@@ -180,6 +180,11 @@ tasks:
   # Shortcuts
   # ---------------------------------------------------------------------------
 
+  dokcker:build:
+    desc: Build in docker
+    cmds:
+      - docker build . -t pg_freezer
+
   default:
     desc: Show available tasks
     cmds:

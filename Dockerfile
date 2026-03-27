@@ -8,6 +8,7 @@ WORKDIR /app
 # Copy dependency files first for layer caching
 COPY pyproject.toml .
 COPY src/ src/
+COPY README.md README.md
 
 # Install the package and dependencies (no dev deps)
 RUN uv pip install --system --no-cache .
