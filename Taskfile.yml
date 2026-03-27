@@ -1,11 +1,10 @@
-version: '3'
+version: "3"
 
 vars:
   CONFIG: scripts/config.dev.yaml
   PG_DSN: '{{.PG_DSN | default "postgresql://postgres:postgres@localhost:5432/testdb"}}'
 
 tasks:
-
   # ---------------------------------------------------------------------------
   # Infrastructure
   # ---------------------------------------------------------------------------
@@ -116,10 +115,10 @@ tasks:
         task dev:list TABLE=sensor_readings FROM=2024-01-01 TO=2024-02-01
         task dev:list STATUS=FAILED
     vars:
-      TABLE_FLAG:  '{{if .TABLE}}--table {{.TABLE}}{{end}}'
-      FROM_FLAG:   '{{if .FROM}}--from {{.FROM}}{{end}}'
-      TO_FLAG:     '{{if .TO}}--to {{.TO}}{{end}}'
-      STATUS_FLAG: '{{if .STATUS}}--status {{.STATUS}}{{end}}'
+      TABLE_FLAG: "{{if .TABLE}}--table {{.TABLE}}{{end}}"
+      FROM_FLAG: "{{if .FROM}}--from {{.FROM}}{{end}}"
+      TO_FLAG: "{{if .TO}}--to {{.TO}}{{end}}"
+      STATUS_FLAG: "{{if .STATUS}}--status {{.STATUS}}{{end}}"
     cmds:
       - >
         uv run pg-freezer list
@@ -185,3 +184,9 @@ tasks:
     desc: Show available tasks
     cmds:
       - task --list
+
+  release:
+    cmds:
+      - uv run semantic-release -v version --no-vcs-release
+      - git push
+      - git push --tags
