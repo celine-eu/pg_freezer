@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-03-27)
+
+### Bug Fixes
+
+- Corrected dockerfile
+  ([`2cca5b1`](https://github.com/celine-eu/pg_freezer/commit/2cca5b1f144979407dfd965a7808ff6d4ff4264a))
+
+
 ## v1.0.1 (2026-03-27)
 
 ### Bug Fixes
