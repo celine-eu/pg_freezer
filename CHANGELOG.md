@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.0.5 (2026-04-01)
+
+### Bug Fixes
+
+- Stream records to avoid OOMs
+  ([`a28d481`](https://github.com/celine-eu/pg_freezer/commit/a28d481adb05d6b1c753eb0e12d4e6e25baa14f2))
+
+### Chores
+
+- Update pkg
+  ([`cf70ee1`](https://github.com/celine-eu/pg_freezer/commit/cf70ee1fd9b8e9c0bcdeba42c3f2d368a783ce74))
+
+
 ## v1.0.4 (2026-03-27)
 
 ### Bug Fixes
