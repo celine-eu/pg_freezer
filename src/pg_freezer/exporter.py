@@ -93,7 +93,7 @@ class DBExporter:
         """
         Fetch all rows in [window_start, window_end) and serialize to Parquet.
         Returns (parquet_bytes, row_count).
-        Uses a server-side cursor to avoid OOM on large windows.
+        Streams rows in chunks to avoid OOM on large windows.
         """
         ts_col = table_config.timestamp_column
         schema = table_config.schema_name
@@ -108,11 +108,7 @@ class DBExporter:
         where = " AND ".join(where_clauses)
         query = f'SELECT * FROM "{schema}"."{table}" WHERE {where} ORDER BY {ts_col}'
 
-        rows: list[asyncpg.Record] = []
-        column_names: list[str] = []
-        column_oids: list[int] = []
-
-        _LOG_INTERVAL = 50_000
+        _CHUNK_SIZE = 50_000
 
         try:
             async with self._pool.acquire() as conn:
@@ -120,35 +116,57 @@ class DBExporter:
                     f"SET statement_timeout = {self._statement_timeout_ms}"
                 )
                 async with conn.transaction():
-                    cursor = conn.cursor(query, *params, prefetch=1000)
-                    first = True
-                    async for record in cursor:
-                        if first:
-                            column_names = list(record.keys())
-                            # asyncpg Record doesn't expose OIDs directly;
-                            # we introspect via the cursor's attributes after first record
-                            first = False
-                        rows.append(record)
-                        if len(rows) % _LOG_INTERVAL == 0 and logger:
-                            logger.info("export_progress", rows_fetched=len(rows))
+                    # Fetch column names and OIDs upfront so the ParquetWriter
+                    # can be opened with the correct schema before streaming begins.
+                    type_rows = await conn.fetch(
+                        """
+                        SELECT attname, atttypid
+                        FROM pg_attribute
+                        WHERE attrelid = $1::regclass
+                          AND attnum > 0
+                          AND NOT attisdropped
+                        ORDER BY attnum
+                        """,
+                        f"{schema}.{table}",
+                    )
+                    column_names = [r["attname"] for r in type_rows]
+                    column_oids = [r["atttypid"] for r in type_rows]
 
-                    # Introspect column types via pg_attribute
-                    if column_names:
-                        type_rows = await conn.fetch(
-                            """
-                            SELECT attname, atttypid
-                            FROM pg_attribute
-                            WHERE attrelid = $1::regclass
-                              AND attnum > 0
-                              AND NOT attisdropped
-                            ORDER BY attnum
-                            """,
-                            f"{schema}.{table}",
-                        )
-                        oid_by_name = {r["attname"]: r["atttypid"] for r in type_rows}
-                        column_oids = [
-                            oid_by_name.get(col, 25) for col in column_names
-                        ]
+                    if not column_names:
+                        # Table has no columns — return empty Parquet
+                        empty = pa.schema([pa.field("_empty", pa.large_utf8())]).empty_table()
+                        return _serialize_to_parquet(empty), 0
+
+                    arrow_schema = pa.schema([
+                        pa.field(name, _oid_to_arrow(oid, name, logger))
+                        for name, oid in zip(column_names, column_oids)
+                    ])
+
+                    buf = io.BytesIO()
+                    writer = pq.ParquetWriter(buf, arrow_schema, compression="snappy")
+                    total_rows = 0
+                    chunk: list[asyncpg.Record] = []
+
+                    try:
+                        cursor = conn.cursor(query, *params, prefetch=1000)
+                        async for record in cursor:
+                            chunk.append(record)
+                            if len(chunk) >= _CHUNK_SIZE:
+                                writer.write_table(
+                                    _records_to_arrow(chunk, column_names, column_oids, logger)
+                                )
+                                total_rows += len(chunk)
+                                if logger:
+                                    logger.info("export_progress", rows_fetched=total_rows)
+                                chunk = []
+
+                        if chunk:
+                            writer.write_table(
+                                _records_to_arrow(chunk, column_names, column_oids, logger)
+                            )
+                            total_rows += len(chunk)
+                    finally:
+                        writer.close()
 
         except asyncpg.PostgresError as e:
             raise ExportError(
@@ -156,17 +174,11 @@ class DBExporter:
                 f"[{window_start} → {window_end}]: {e}"
             ) from e
 
-        if not rows:
-            # Empty window — produce empty Parquet with schema
-            arrow_schema = pa.schema(
-                [pa.field(name, pa.large_utf8()) for name in (column_names or ["_empty"])]
-            )
-            empty_table = arrow_schema.empty_table()
-            return _serialize_to_parquet(empty_table), 0
+        if total_rows == 0:
+            # Empty window — return empty Parquet with proper schema
+            return _serialize_to_parquet(arrow_schema.empty_table()), 0
 
-        arrow_table = _records_to_arrow(rows, column_names, column_oids, logger)
-        parquet_bytes = _serialize_to_parquet(arrow_table)
-        return parquet_bytes, len(rows)
+        return buf.getvalue(), total_rows
 
     async def count_window(
         self,
