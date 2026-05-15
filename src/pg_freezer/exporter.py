@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import asyncpg
@@ -283,7 +283,12 @@ class DBExporter:
         if row is None or row["min_ts"] is None:
             return None, None
 
-        def _to_utc(v: datetime) -> datetime:
+        def _to_utc(v: datetime | date | str) -> datetime:
+            if isinstance(v, str):
+                v = datetime.fromisoformat(v)
+            elif type(v) is date:
+                # date column: treat as midnight UTC
+                return datetime(v.year, v.month, v.day, tzinfo=timezone.utc)
             if v.tzinfo is None:
                 return v.replace(tzinfo=timezone.utc)
             return v.astimezone(timezone.utc)
