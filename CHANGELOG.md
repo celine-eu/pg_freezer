@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.6 (2026-05-15)
+
+### Bug Fixes
+
+- Improve date parsing
+  ([`0a9e18e`](https://github.com/celine-eu/pg_freezer/commit/0a9e18eb50443c9f5b5df49b42b545d7bd235d27))
+
+
 ## v1.0.5 (2026-04-01)
 
 ### Bug Fixes
