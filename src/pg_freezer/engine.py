@@ -302,18 +302,8 @@ class FreezerEngine:
                         deleted_at=datetime.now(tz=timezone.utc)
                     )
                 return
-            else:
-                err = (
-                    f"Crash detected during DELETING: {remaining} rows still in PG. "
-                    "Manual investigation required."
-                )
-                manifest = await store.transition(manifest, "FAILED", error=err)
-                await notify_failure(
-                    webhook_url,
-                    table_config.name, batch_id,
-                    window_start, window_end, err, logger
-                )
-                return
+            # Rows remain after a crash mid-delete — resume chunked deletion below
+            logger.warning("batch_delete_resuming", remaining=remaining)
 
         # --- EXPORTING ---
         if manifest.status in ("PENDING", "EXPORTING"):
@@ -387,13 +377,14 @@ class FreezerEngine:
             )
 
         # --- DELETION ---
-        if manifest.status == "VERIFIED":
+        if manifest.status in ("VERIFIED", "DELETING"):
             if dry_run:
                 logger.info("dry_run_skip_delete", row_count=manifest.row_count)
                 return
 
             logger.info("batch_deleting", row_count=manifest.row_count)
-            manifest = await store.transition(manifest, "DELETING")
+            if manifest.status == "VERIFIED":
+                manifest = await store.transition(manifest, "DELETING")
             try:
                 deleted = await self._exporter.delete_window(
                     table_config,

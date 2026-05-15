@@ -11,6 +11,7 @@ from pg_freezer.exporter import (
     _oid_to_arrow,
     _records_to_arrow,
     _serialize_to_parquet,
+    _ts_params,
     count_parquet_rows,
 )
 
@@ -271,6 +272,41 @@ class TestDateLookAlikeColumns:
         table = _records_to_arrow(records, ["raw_date"], [25])
         assert table.column("raw_date")[1].as_py() is None
         assert table.column("raw_date")[2].as_py() == "not-a-date"
+
+
+class TestTsParams:
+    """Unit tests for _ts_params — asyncpg parameter type selection by column OID."""
+
+    _UTC = timezone.utc
+    _start = datetime(2026, 2, 1, tzinfo=timezone.utc)
+    _end = datetime(2026, 3, 1, tzinfo=timezone.utc)
+
+    def test_text_column_returns_iso_strings(self):
+        p = _ts_params(self._start, self._end, 25)  # OID 25 = text
+        assert p == ["2026-02-01T00:00:00+00:00", "2026-03-01T00:00:00+00:00"]
+        assert all(isinstance(v, str) for v in p)
+
+    def test_varchar_column_returns_iso_strings(self):
+        p = _ts_params(self._start, self._end, 1043)  # OID 1043 = varchar
+        assert all(isinstance(v, str) for v in p)
+
+    def test_timestamp_no_tz_column_returns_naive_datetimes(self):
+        p = _ts_params(self._start, self._end, 1114)  # OID 1114 = timestamp
+        assert all(isinstance(v, datetime) for v in p)
+        assert all(v.tzinfo is None for v in p)
+        assert p[0] == datetime(2026, 2, 1)
+        assert p[1] == datetime(2026, 3, 1)
+
+    def test_timestamptz_column_returns_aware_datetimes(self):
+        p = _ts_params(self._start, self._end, 1184)  # OID 1184 = timestamptz
+        assert all(isinstance(v, datetime) for v in p)
+        assert all(v.tzinfo is not None for v in p)
+        assert p[0] == self._start
+
+    def test_unknown_oid_returns_aware_datetimes(self):
+        p = _ts_params(self._start, self._end, 99999)
+        assert all(isinstance(v, datetime) for v in p)
+        assert all(v.tzinfo is not None for v in p)
 
 
 class TestDuckDBIntegration:

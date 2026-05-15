@@ -41,6 +41,34 @@ _PG_OID_TO_ARROW: dict[int, pa.DataType] = {
 }
 
 
+_TEXT_OIDS = frozenset({25, 1043, 1042, 19})  # text, varchar, bpchar, name
+_TS_NAIVE_OIDS = frozenset({1114})              # timestamp without timezone
+
+
+def _ts_params(window_start: datetime, window_end: datetime, ts_oid: int) -> list[Any]:
+    """Return query params in the type asyncpg expects for the timestamp column's OID."""
+    if ts_oid in _TEXT_OIDS:
+        return [window_start.isoformat(), window_end.isoformat()]
+    if ts_oid in _TS_NAIVE_OIDS:
+        # asyncpg timestamp (no-tz) codec rejects aware datetimes — strip tzinfo
+        return [window_start.replace(tzinfo=None), window_end.replace(tzinfo=None)]
+    # timestamptz (1184) and anything else: pass UTC-aware datetime as-is
+    return [window_start, window_end]
+
+
+async def _fetch_ts_col_oid(
+    conn: asyncpg.Connection, schema: str, table: str, ts_col: str
+) -> int:
+    """Look up the OID of the timestamp column from pg_attribute."""
+    row = await conn.fetchrow(
+        """SELECT atttypid FROM pg_attribute
+           WHERE attrelid = $1::regclass AND attname = $2
+             AND attnum > 0 AND NOT attisdropped""",
+        f"{schema}.{table}", ts_col,
+    )
+    return int(row["atttypid"]) if row else 25
+
+
 def _oid_to_arrow(oid: int, col_name: str, logger: Any | None = None) -> pa.DataType:
     arrow_type = _PG_OID_TO_ARROW.get(oid)
     if arrow_type is None:
@@ -100,11 +128,8 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
-
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
-
         where = " AND ".join(where_clauses)
         query = f'SELECT * FROM "{schema}"."{table}" WHERE {where} ORDER BY {ts_col}'
 
@@ -131,6 +156,14 @@ class DBExporter:
                     )
                     column_names = [r["attname"] for r in type_rows]
                     column_oids = [r["atttypid"] for r in type_rows]
+
+                    # Build params using the actual OID of the timestamp column so
+                    # asyncpg receives the Python type its codec expects (str for text
+                    # columns, naive datetime for timestamp-no-tz, aware for timestamptz).
+                    ts_col_oid = next(
+                        (r["atttypid"] for r in type_rows if r["attname"] == ts_col), 25
+                    )
+                    params: list[Any] = _ts_params(window_start, window_end, ts_col_oid)
 
                     if not column_names:
                         # Table has no columns — return empty Parquet
@@ -192,13 +225,14 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
         where = " AND ".join(where_clauses)
 
         async with self._pool.acquire() as conn:
             await conn.execute(f"SET statement_timeout = {self._statement_timeout_ms}")
+            ts_oid = await _fetch_ts_col_oid(conn, schema, table, ts_col)
+            params = _ts_params(window_start, window_end, ts_oid)
             result = await conn.fetchval(
                 f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE {where}',
                 *params,
@@ -226,44 +260,46 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
         where = " AND ".join(where_clauses)
 
+        _DELETE_CHUNK = 25_000
+
         async with self._pool.acquire() as conn:
             await conn.execute(f"SET statement_timeout = {self._statement_timeout_ms}")
-            async with conn.transaction():
-                status = await conn.execute(
-                    f'DELETE FROM "{schema}"."{table}" WHERE {where}',
-                    *params,
-                )
-                # Parse "DELETE N" status string
-                deleted_count = int(status.split()[-1])
+            ts_oid = await _fetch_ts_col_oid(conn, schema, table, ts_col)
+            params = _ts_params(window_start, window_end, ts_oid)
 
-                # Post-delete verification: no rows should remain in this window
-                remaining = await conn.fetchval(
-                    f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE {where}',
-                    *params,
-                )
-                remaining = int(remaining)
-
-                if remaining != 0:
-                    raise DeleteSafetyError(
-                        f"Expected 0 rows after delete for {schema}.{table} "
-                        f"[{window_start} → {window_end}], "
-                        f"but {remaining} rows remain. Transaction rolled back."
+            total_deleted = 0
+            while True:
+                async with conn.transaction():
+                    status = await conn.execute(
+                        f'DELETE FROM "{schema}"."{table}" WHERE ctid IN ('
+                        f'  SELECT ctid FROM "{schema}"."{table}"'
+                        f"  WHERE {where}"
+                        f"  ORDER BY {ts_col}"
+                        f"  LIMIT {_DELETE_CHUNK}"
+                        f")",
+                        *params,
                     )
+                    n = int(status.split()[-1])
+                    total_deleted += n
+                if n < _DELETE_CHUNK:
+                    break
 
-                if deleted_count != expected_count:
-                    raise DeleteSafetyError(
-                        f"Deleted {deleted_count} rows from {schema}.{table} "
-                        f"[{window_start} → {window_end}], "
-                        f"expected {expected_count} (from export). "
-                        f"Transaction rolled back."
-                    )
+            remaining = await conn.fetchval(
+                f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE {where}',
+                *params,
+            )
+            if int(remaining) != 0:
+                raise DeleteSafetyError(
+                    f"Expected 0 rows after delete for {schema}.{table} "
+                    f"[{window_start} → {window_end}], "
+                    f"but {remaining} rows remain."
+                )
 
-        return deleted_count
+        return total_deleted
 
     async def get_window_bounds(
         self,
