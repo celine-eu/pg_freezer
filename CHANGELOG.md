@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.8 (2026-05-15)
+
+### Bug Fixes
+
+- Stepped deletes for large tables, improve date handling, add tests
+  ([`fb82b0b`](https://github.com/celine-eu/pg_freezer/commit/fb82b0b95bedfda1ff17d4a0c5225b26ee3fa1f7))
+
+
 ## v1.0.7 (2026-05-15)
 
 ### Bug Fixes
