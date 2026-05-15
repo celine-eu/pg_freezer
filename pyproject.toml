@@ -54,7 +54,7 @@ dev-dependencies = [
 version_toml = ["pyproject.toml:project.version"]
 
 build_command = """
-    uv lock --upgrade-package "$PACKAGENAME"
+    uv lock --upgrade-package pg_freezer
     git add uv.lock
     uv build
 """
