@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.0.7 (2026-05-15)
+
+### Bug Fixes
+
+- Improve query typing, add side case tests
+  ([`0e1ce93`](https://github.com/celine-eu/pg_freezer/commit/0e1ce93761d28137720a34c6cc02a4bba750a4d8))
+
+### Chores
+
+- Fix release script
+  ([`769af75`](https://github.com/celine-eu/pg_freezer/commit/769af751cbd10098a15cc4c95d499a127b3dea0d))
+
+
 ## v1.0.6 (2026-05-15)
 
 ### Bug Fixes
