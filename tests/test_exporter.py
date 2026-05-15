@@ -149,6 +149,130 @@ class TestCountParquetRows:
         assert count_parquet_rows(data) == 10_000
 
 
+class TestDateLookAlikeColumns:
+    """Columns whose names or values look date-like but whose PG type is something else."""
+
+    # --- text / varchar / bpchar holding ISO strings ---
+
+    def test_text_column_with_iso_timestamp_string(self):
+        # OID 25 = text; asyncpg returns str, not datetime
+        records = make_records([
+            ["2026-04-01T00:00:00+00:00"],
+            ["2026-04-15T12:30:00+00:00"],
+        ])
+        table = _records_to_arrow(records, ["event_time"], [25])
+        assert table.schema.field("event_time").type == pa.large_utf8()
+        assert table.column("event_time")[0].as_py() == "2026-04-01T00:00:00+00:00"
+
+    def test_varchar_column_with_date_string(self):
+        # OID 1043 = varchar; date-only strings stay as strings
+        records = make_records([["2026-01-01"], ["2026-12-31"]])
+        table = _records_to_arrow(records, ["created_date"], [1043])
+        assert table.schema.field("created_date").type == pa.large_utf8()
+        assert table.column("created_date")[1].as_py() == "2026-12-31"
+
+    def test_bpchar_column_with_fixed_date_string(self):
+        # OID 1042 = bpchar (char(n)); e.g. YYYYMMDD fixed-width dates
+        records = make_records([["20260401"], ["20261231"]])
+        table = _records_to_arrow(records, ["date_key"], [1042])
+        assert table.schema.field("date_key").type == pa.large_utf8()
+        assert table.column("date_key")[0].as_py() == "20260401"
+
+    def test_name_type_column_with_date_like_string(self):
+        # OID 19 = name (internal PG identifier type); not a timestamp
+        records = make_records([["2026-04-01_partition"], ["2026-05-01_partition"]])
+        table = _records_to_arrow(records, ["partition_name"], [19])
+        assert table.schema.field("partition_name").type == pa.large_utf8()
+
+    # --- numeric types used as epoch storage ---
+
+    def test_bigint_column_with_unix_epoch_seconds(self):
+        # OID 20 = int8; storing Unix epoch seconds looks like a timestamp by value
+        records = make_records([[1743465600], [1746057600]])
+        table = _records_to_arrow(records, ["event_ts"], [20])
+        assert table.schema.field("event_ts").type == pa.int64()
+        assert table.column("event_ts")[0].as_py() == 1743465600
+
+    def test_numeric_column_with_epoch_millis(self):
+        # OID 1700 = numeric; epoch-millis look date-like but coerce to float
+        records = make_records([[Decimal("1743465600000")], [Decimal("1746057600000")]])
+        table = _records_to_arrow(records, ["ts_ms"], [1700])
+        assert table.schema.field("ts_ms").type == pa.float64()
+        assert table.column("ts_ms")[0].as_py() == pytest.approx(1_743_465_600_000.0)
+
+    def test_float8_column_with_fractional_epoch(self):
+        # OID 701 = float8; fractional epoch seconds (e.g. from sensors)
+        records = make_records([[1743465600.123], [1746057600.456]])
+        table = _records_to_arrow(records, ["sensor_ts"], [701])
+        assert table.schema.field("sensor_ts").type == pa.float64()
+
+    # --- JSON/JSONB columns embedding datetime payloads ---
+
+    def test_jsonb_column_with_datetime_payload(self):
+        # OID 3802 = jsonb; asyncpg returns a dict; _coerce_value serializes to str
+        records = make_records([
+            [{"ts": "2026-04-01T00:00:00Z", "value": 42}],
+            [{"ts": "2026-05-01T00:00:00Z", "value": 99}],
+        ])
+        table = _records_to_arrow(records, ["payload"], [3802])
+        assert table.schema.field("payload").type == pa.large_utf8()
+        import json as _json
+        parsed = _json.loads(table.column("payload")[0].as_py())
+        assert parsed["ts"] == "2026-04-01T00:00:00Z"
+
+    def test_json_column_with_nested_date(self):
+        # OID 114 = json; same path as jsonb
+        records = make_records([[{"date": "2026-04-01", "ok": True}]])
+        table = _records_to_arrow(records, ["meta"], [114])
+        assert table.schema.field("meta").type == pa.large_utf8()
+
+    # --- datetime object accidentally arriving in a text-typed column ---
+
+    def test_datetime_object_in_text_column_falls_back_to_string(self):
+        # If asyncpg somehow returns a datetime for a text column (shouldn't
+        # happen in practice, but guards the fallback path), _records_to_arrow
+        # must not raise — it falls back to large_utf8 serialization.
+        ts = datetime(2026, 4, 1, 0, 0, tzinfo=timezone.utc)
+        records = make_records([[ts]])
+        table = _records_to_arrow(records, ["created_at"], [25])
+        # Column must land as string, not error
+        assert table.schema.field("created_at").type == pa.large_utf8()
+        assert table.column("created_at")[0].as_py() is not None
+
+    def test_date_object_in_text_column_falls_back_to_string(self):
+        # Same fallback for a bare date object in a text column
+        d = date(2026, 4, 1)
+        records = make_records([[d]])
+        table = _records_to_arrow(records, ["day"], [25])
+        assert table.schema.field("day").type == pa.large_utf8()
+
+    # --- real timestamp / date columns work correctly as contrast ---
+
+    def test_actual_timestamptz_column(self):
+        ts = datetime(2026, 4, 1, tzinfo=timezone.utc)
+        records = make_records([[ts]])
+        table = _records_to_arrow(records, ["ts"], [1184])
+        assert table.schema.field("ts").type == pa.timestamp("us", tz="UTC")
+
+    def test_actual_date_column(self):
+        # OID 1082; asyncpg returns datetime.date objects
+        d = date(2026, 4, 1)
+        records = make_records([[d]])
+        table = _records_to_arrow(records, ["day"], [1082])
+        assert table.schema.field("day").type == pa.date32()
+        assert table.column("day")[0].as_py() == d
+
+    def test_nullable_text_column_with_mixed_date_strings(self):
+        records = make_records([
+            ["2026-04-01"],
+            [None],
+            ["not-a-date"],
+        ])
+        table = _records_to_arrow(records, ["raw_date"], [25])
+        assert table.column("raw_date")[1].as_py() is None
+        assert table.column("raw_date")[2].as_py() == "not-a-date"
+
+
 class TestDuckDBIntegration:
     """Verify Parquet files can be queried with DuckDB (simulates Trino read path)."""
 

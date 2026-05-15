@@ -100,7 +100,7 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start, window_end]
+        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
 
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
@@ -192,7 +192,7 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start, window_end]
+        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
         where = " AND ".join(where_clauses)
@@ -226,7 +226,7 @@ class DBExporter:
         table = table_config.name
 
         where_clauses = [f"{ts_col} >= $1 AND {ts_col} < $2"]
-        params: list[Any] = [window_start, window_end]
+        params: list[Any] = [window_start.isoformat(), window_end.isoformat()]
         if table_config.extra_filters:
             where_clauses.append(f"({table_config.extra_filters})")
         where = " AND ".join(where_clauses)
